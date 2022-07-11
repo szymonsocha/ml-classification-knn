@@ -1,0 +1,918 @@
+---
+title: "Drug consumption - Classification"
+author: "Szymon Socha"
+output:
+  word_document: default
+  html_document: default
+---
+
+# Machine Learning 1 - Classification project
+
+Classification in machine learning is a common problem of putting data instances into groups (binary, multi-class or multi-label) based on their characteristics. It can be used in many real world business problem like credit risk, fraud detection, disease prediction. Based on historical data and given 'target' variable, classifiers find patterns and are able to adapt those patterns to new data. The main goal of classification in machine is to obtain the most accurate prediction as possible. The accuracy can be measured with a couple of metrics like ROC-AUC curve, F1 score, Confusion Matrix et. al. As a metric for this project I will use the <b>balanced accuracy</b>.<br>
+The main task of this project is to apply various ML algorithms to build a model explaining whether a particular person consumed cocaine in the last month based on the training sample and generate predictions for all observations from the test sample.
+
+# Import libraries
+
+Let's begin with importing all necessary libraries
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, accuracy_score, classification_report, roc_curve, auc, balanced_accuracy_score
+from sklearn.model_selection import train_test_split, RandomizedSearchCV, KFold, StratifiedKFold
+from sklearn.pipeline import make_pipeline
+
+import collections
+from collections import Counter
+
+from imblearn.pipeline import make_pipeline as make_pipeline
+from imblearn.combine import SMOTETomek
+from imblearn.under_sampling import TomekLinks
+from imblearn.metrics import classification_report_imbalanced
+import warnings
+warnings.filterwarnings("ignore")
+```
+
+# Data preparation
+
+Import training dataset csv file
+
+```{python}
+df = pd.read_csv("data/drugs_train.csv")
+df.head()
+```
+
+The training dataset contaings of 21 variables and 1500 observations. 
+
+I am removing the id variable. This variable is unique for each row and does not add any information. I map the value of the dependent variable from Yes to 1 and from No to 0.
+
+```{python}
+df.drop(columns=['id'], inplace = True)
+
+df['consumption_cocaine_last_month'] = df['consumption_cocaine_last_month'].map({'Yes': 1, 'No': 0})
+```
+
+I check basic descriptive statistics to find outliers. I don't see anything alarming in the data that would indicate the existence of outliers.
+
+```{python}
+df.describe()
+```
+
+Let's see what variables are in our dataset
+
+```{python}
+df.columns
+```
+
+Let's look at the explained variable. Let's see what the distribution of 1 and 0 is. 
+
+```{python}
+print('No', round(df['consumption_cocaine_last_month'].value_counts()[0]/len(df) * 100,2), '% of the dataset')
+print('Yes', round(df['consumption_cocaine_last_month'].value_counts()[1]/len(df) * 100,2), '% of the dataset')
+```
+
+I see that only 8 per cent of observations are positive. So I have a problem with unbalanced data. It will be necessary to find a way to deal with this problem. Let's see it in the graph.
+
+```{python}
+sns.countplot('consumption_cocaine_last_month', data=df)
+```
+
+The gender variable is balanced and does not need to be modified.
+
+```{python}
+sns.catplot(x='gender', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='education', kind="count", data=df)
+```
+
+The `education` variable has some small-volume levels. I combine the three least frequent levels into one `Left school before 18 years`.
+
+```{python}
+df.loc[df["education"] == "Left school at 17 years", "education"] = "Left school before 18 years"
+df.loc[df["education"] == "Left school at 16 years", "education"] = "Left school before 18 years"
+df.loc[df["education"] == "Left school before 16 years", "education"] = "Left school before 18 years"
+```
+
+```{python}
+sns.catplot(x='education', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='country', kind="count", data=df)
+```
+
+The `country` variable, as before, has few levels. I link it to `Other country`.
+
+```{python}
+df.loc[df["country"] == "Canada", "country"] = "Other country"
+df.loc[df["country"] == "Ireland", "country"] = "Other country"
+```
+
+In the following variables (`ethnicity`, `consumption_alcohol`, `consumption_chocolate`, `consumption_mushrooms`, `consumption_nicotine`), I also observe low levels. In each case I proceed in the same way. By combining them into larger levels.
+
+```{python}
+sns.catplot(x='ethnicity', kind="count", data=df)
+```
+
+```{python}
+df.loc[df["ethnicity"] == "Asian", "ethnicity"] = "Other"
+df.loc[df["ethnicity"] == "Black", "ethnicity"] = "Other"
+df.loc[df["ethnicity"] == "Other", "ethnicity"] = "Other"
+df.loc[df["ethnicity"] == "White", "ethnicity"] = "Other"
+df.loc[df["ethnicity"] == "Mixed-White/Asian", "ethnicity"] = "Other"
+df.loc[df["ethnicity"] == "Mixed-White/Black", "ethnicity"] = "Other"
+```
+
+```{python}
+sns.catplot(x='ethnicity', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='ethnicity', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='consumption_alcohol', kind="count", data=df)
+```
+
+```{python}
+df.loc[df["consumption_alcohol"] == "never used", "consumption_alcohol"] = "more than year ago"
+df.loc[df["consumption_alcohol"] == "used in last decade", "consumption_alcohol"] = "more than year ago"
+df.loc[df["consumption_alcohol"] == "used over a decade ago", "consumption_alcohol"] = "more than year ago"
+```
+
+```{python}
+sns.catplot(x='consumption_amphetamines', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='consumption_caffeine', kind="count", data=df)
+```
+
+```{python}
+df.loc[df["consumption_caffeine"] == "used in last decade", "consumption_caffeine"] = "more than month ago"
+df.loc[df["consumption_caffeine"] == "used over a decade ago", "consumption_caffeine"] = "more than month ago"
+df.loc[df["consumption_caffeine"] == "used in last year", "consumption_caffeine"] = "more than month ago"
+df.loc[df["consumption_caffeine"] == "never used", "consumption_caffeine"] = "more than month ago"
+```
+
+```{python}
+sns.catplot(x='consumption_caffeine', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='consumption_cannabis', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='consumption_chocolate', kind="count", data=df).fig.set_figwidth(20)
+```
+
+```{python}
+df.loc[df["consumption_chocolate"] == "used in last decade", "consumption_chocolate"] = "more than month ago"
+df.loc[df["consumption_chocolate"] == "used over a decade ago", "consumption_chocolate"] = "more than month ago"
+df.loc[df["consumption_chocolate"] == "never used", "consumption_chocolate"] = "more than month ago"
+df.loc[df["consumption_chocolate"] == "used in last year", "consumption_chocolate"] = "more than month ago"
+```
+
+```{python}
+sns.catplot(x='consumption_chocolate', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='consumption_chocolate', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='consumption_chocolate', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='consumption_mushrooms', kind="count", data=df)
+```
+
+```{python}
+df.loc[df["consumption_mushrooms"] == "used in last week", "consumption_mushrooms"] = "used recently"
+df.loc[df["consumption_mushrooms"] == "used in last day", "consumption_mushrooms"] = "used recently"
+```
+
+```{python}
+sns.catplot(x='consumption_mushrooms', kind="count", data=df)
+```
+
+```{python}
+sns.catplot(x='consumption_nicotine', kind="count", data=df)
+```
+
+I convert categorical variables to dummies.
+
+```{python}
+df = pd.get_dummies(df, columns = ['age', 'gender', 'education', 'country', 'ethnicity','consumption_alcohol',
+       'consumption_amphetamines', 'consumption_caffeine',
+       'consumption_cannabis', 'consumption_chocolate',
+       'consumption_mushrooms', 'consumption_nicotine'])
+```
+
+For easier analysis, I divide all levels of numerical variables by 100 (all were previously scaled from 0 to 100).
+
+```{python}
+df['personality_neuroticism'] = df['personality_neuroticism']/100
+df['personality_extraversion'] = df['personality_extraversion']/100
+df['personality_openness'] = df['personality_openness'] / 100
+df['personality_agreeableness'] = df['personality_agreeableness']/100
+df['personality_conscientiousness'] = df['personality_conscientiousness']/100
+df['personality_impulsiveness'] = df['personality_impulsiveness']/100
+df['personality_sensation'] = df['personality_sensation'] /100
+#df['consumption_alcohol'] = df['consumption_alcohol']/100
+#df['consumption_amphetamines'] = df['consumption_amphetamines']/100
+#df['consumption_caffeine'] = df['consumption_caffeine']/100
+#df['consumption_cannabis'] = df['consumption_cannabis']/100
+#df['consumption_chocolate'] = df['consumption_chocolate']/100
+#df['consumption_mushrooms'] = df['consumption_mushrooms']/100
+#df['consumption_nicotine'] = df['consumption_nicotine']/100
+#df['consumption_cocaine_last_month'] =df['consumption_cocaine_last_month']/100
+```
+
+I check what variables I have after all the modifications.
+
+```{python}
+df.columns
+```
+
+I write the list of explanatory variables as `features` and the variable `consumption_cocaine_last_month` to `target`.
+
+```{python}
+features = df.columns
+target = 'consumption_cocaine_last_month'
+```
+
+Oversampling is the synthetic creation of new data. Therefore, if I want to measure the actual performance of the models later, it is important to save the original values on which I will not make any modifications.
+
+```{python}
+X = df.drop('consumption_cocaine_last_month', axis=1)
+y = df['consumption_cocaine_last_month']
+
+sKFold = StratifiedKFold(n_splits=5, random_state=None, shuffle=False)
+
+for train_index, test_index in sKFold.split(X, y):
+    orgXtrain, orgXtest = X.iloc[train_index], X.iloc[test_index]
+    orgytrain, orgytest = y.iloc[train_index], y.iloc[test_index]
+
+orgXtrain = orgXtrain.values
+orgXtest = orgXtest.values
+orgytrain = orgytrain.values
+orgytest = orgytest.values
+```
+
+I also do a custom train split test creating data that will feed into the estimated models.
+
+```{python}
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=2137)
+
+# Turn the values into an array for feeding the classification algorithms.
+X_train = X_train.values
+X_test = X_test.values
+y_train = y_train.values
+y_test = y_test.values
+```
+
+# Oversampling - SMOTE + Tomek
+
+As I mentioned earlier, the data are unbalanced. One way to deal with this problem is SMOTE oversampling (another way is undersampling, but I'm not dealing with it in this project). Synthetic Minority Oversampling TEchnique (SMOTE) works by selecting examples that are close in the feature space, drawing a line between the examples in the feature space and drawing a new sample at a point along that line. 
+
+Additionally, I combine this technique with undersampling Tomek. Undersampling Tomek is not yet explored. However, it is believed that combining these two techniques will reduce recall (at the expense of precision). Reducing recall will improve balanced accuracy, which is the main goal of this project.
+
+This way I get a balanced dataset with synthetic data.
+
+## Manual parameter tunning
+
+I am testing the performance of various algorithms: Random Forrest, k-Nearest Neighbors, Logistic Regression and Support Vector Classifier. I do hyperparameter tuning manually.
+
+### Random Forrest
+
+```{python}
+def CVTestRFClass(nFolds = 6, randomState=2020, debug=False, features=features, *args, **kwargs):
+    kf = KFold(n_splits=nFolds, shuffle=True, random_state=randomState)
+    sKFold = StratifiedKFold(n_splits=4, random_state=None, shuffle=False)
+
+    # Lists to store the results
+    testResults = []
+    trainResults = []
+    predictions = []
+    indices = []
+
+    # Model validation on consecutive folds
+    for train, test in sKFold.split(X_train, y_train):
+        # Prepare the estimator
+        clf = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), RandomForestClassifier(*args, **kwargs, random_state=randomState)) 
+        
+        if debug:
+            print(clf)
+        # Train the model
+        clf.fit(X_train[train], y_train[train])
+
+        predsTrain = clf.predict(X_train[train])
+        preds = clf.predict(X_train[test])
+        
+        # Save each fold predictions
+        predictions.append(preds.tolist().copy())
+        
+        # Store index for original dataset
+        #indices.append(df.iloc[test].index.tolist().copy())
+        
+        # Get MAPE score from each fold
+        trainScore = balanced_accuracy_score(y_train[train], predsTrain)
+        testScore = balanced_accuracy_score(y_train[test], preds)
+        
+        # Store Mape results to list  
+        trainResults.append(trainScore)
+        testResults.append(testScore)
+        
+        # Optionally, print results for each fold
+        if debug:
+            print("Train MAPE:", trainScore,
+                  "Valid MAPE:", testScore)
+        
+    return trainResults, testResults, predictions, indices
+```
+
+```{python}
+trainResults, testResults, predictions, indices = CVTestRFClass()
+print(np.mean(trainResults), np.mean(testResults))
+```
+
+With the default settings I observe a lot of overfitting. The prediction on the training set is very large compared to the test set.
+
+#### `min_samples_split`
+
+```{python}
+for k in range(10, 100, 5):
+    trainResults, testResults, predictions, indices = CVTestRFClass(min_samples_split=k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+Best result `min_samples_split` for 70.
+
+#### `max_features`
+
+```{python}
+for k in range(20, 30, 2):
+    trainResults, testResults, predictions, indices = CVTestRFClass(min_samples_split=70, max_features=k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+Best `max_features` score for 26.
+
+#### `max_depth`
+
+```{python}
+for k in range(1, 10,1):
+    trainResults, testResults, predictions, indices = CVTestRFClass(min_samples_split=70, max_features=26, max_depth=k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+Best for 3
+
+#### `min_samples_leaf`
+
+```{python}
+for k in range(1, 100,10):
+    trainResults, testResults, predictions, indices = CVTestRFClass(min_samples_split=70, max_features=26, max_depth=3, min_samples_leaf=k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+Best `min_samples_leaf` score for 31.
+
+#### `n_estimators`
+
+```{python}
+for k in range(100, 1000,100):
+    trainResults, testResults, predictions, indices = CVTestRFClass(min_samples_split=70, max_features=26, max_depth=3, min_samples_leaf=31, n_estimators=k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+The more `n_estimators` the better.
+
+#### Tuned model
+
+I make a prediction on the model with the hyperparameters found.
+
+```{python}
+best_forrest = RandomForestClassifier(min_samples_split=70, max_features=26, max_depth=3, min_samples_leaf = 31, n_estimators=1000)
+pipeline = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), best_forrest) # SMOTE happens during Cross Validation not before..
+model = pipeline.fit(X_train, y_train)
+prediction = best_forrest.predict(orgXtrain)
+print(f'NEW DATA BALANCED ACCURACY\ntraining: {round(balanced_accuracy_score(orgytrain, prediction) * 100, 4)}%\ntest (out-of-sample): {round(balanced_accuracy_score(orgytest, best_forrest.predict(orgXtest)) * 100, 4)}%')
+```
+
+### k-Nearest Neighbors
+
+```{python}
+def CVTestKNNlass(nFolds = 6, randomState=2020, debug=False, features=features, *args, **kwargs):
+    kf = KFold(n_splits=nFolds, shuffle=True, random_state=randomState)
+    sKFold = StratifiedKFold(n_splits=4, random_state=None, shuffle=False)
+
+    # Lists to store the results
+    testResults = []
+    trainResults = []
+    predictions = []
+    indices = []
+
+    # Model validation on consecutive folds
+    for train, test in sKFold.split(X_train, y_train):
+        # Prepare the estimator
+        clf = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), KNeighborsClassifier(*args, **kwargs)) 
+        #clf = RandomForestRegressor(*args, **kwargs, random_state=randomState, n_jobs=-1)
+        if debug:
+            print(clf)
+        # Train the model
+        clf.fit(X_train[train], y_train[train])
+
+        predsTrain = clf.predict(X_train[train])
+        preds = clf.predict(X.iloc[test])
+        
+        # Save each fold predictions
+        predictions.append(preds.tolist().copy())
+        
+        # Store index for original dataset
+        #indices.append(df.iloc[test].index.tolist().copy())
+        
+        # Get MAPE score from each fold
+        trainScore = balanced_accuracy_score(y_train[train], predsTrain)
+        testScore = balanced_accuracy_score(y_train[test], preds)
+        
+        # Store Mape results to list  
+        trainResults.append(trainScore)
+        testResults.append(testScore)
+        
+        # Optionally, print results for each fold
+        if debug:
+            print("Train MAPE:", trainScore,
+                  "Valid MAPE:", testScore)
+        
+    return trainResults, testResults, predictions, indices
+```
+
+#### `n_neighbors`
+
+```{python}
+for k in range(1, 5, 1):
+    trainResults, testResults, predictions, indices = CVTestKNNlass(n_neighbors = k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+Best performance for 2 neighbors.
+
+#### Tuned model
+
+```{python}
+best_knn = KNeighborsClassifier(n_neighbors = 2)
+pipeline = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), best_knn) # SMOTE happens during Cross Validation not before..
+model = pipeline.fit(X_train, y_train)
+prediction = best_knn.predict(orgXtrain)
+print(f'NEW DATA BALANCED ACCURACY\ntraining: {round(balanced_accuracy_score(orgytrain, prediction) * 100, 4)}%\ntest (out-of-sample): {round(balanced_accuracy_score(orgytest, best_knn.predict(orgXtest)) * 100, 4)}%')
+```
+
+I obtain **VERY GOOD RESULTS** with this algorithm.
+
+### Logistic Regression
+
+```{python}
+def CVTestLRClass(nFolds = 6, randomState=2020, debug=False, features=features, *args, **kwargs):
+    kf = KFold(n_splits=nFolds, shuffle=True, random_state=randomState)
+    sKFold = StratifiedKFold(n_splits=4, random_state=None, shuffle=False)
+
+    # Lists to store the results
+    testResults = []
+    trainResults = []
+    predictions = []
+    indices = []
+
+    # Model validation on consecutive folds
+    for train, test in sKFold.split(X_train, y_train):
+        # Prepare the estimator
+        clf = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), LogisticRegression(*args, **kwargs, random_state=randomState)) 
+        
+        if debug:
+            print(clf)
+        # Train the model
+        clf.fit(X_train[train], y_train[train])
+
+        predsTrain = clf.predict(X_train[train])
+        preds = clf.predict(X_train[test])
+        
+        # Save each fold predictions
+        predictions.append(preds.tolist().copy())
+        
+        # Store index for original dataset
+        #indices.append(df.iloc[test].index.tolist().copy())
+        
+        # Get MAPE score from each fold
+        trainScore = balanced_accuracy_score(y_train[train], predsTrain)
+        testScore = balanced_accuracy_score(y_train[test], preds)
+        
+        # Store Mape results to list  
+        trainResults.append(trainScore)
+        testResults.append(testScore)
+        
+        # Optionally, print results for each fold
+        if debug:
+            print("Train MAPE:", trainScore,
+                  "Valid MAPE:", testScore)
+        
+    return trainResults, testResults, predictions, indices
+```
+
+`penalty='none'`
+
+```{python}
+trainResults, testResults, predictions, indices = CVTestLRClass(penalty='none')
+print(np.mean(trainResults), np.mean(testResults))
+```
+
+`penalty='l2'`
+
+```{python}
+trainResults, testResults, predictions, indices = CVTestLRClass(penalty='l2')
+print(np.mean(trainResults), np.mean(testResults))
+```
+
+`penalty='elasticnet'`, `solver = 'saga'`, `l1_ratio=0.9`
+
+```{python}
+trainResults, testResults, predictions, indices = CVTestLRClass(penalty='elasticnet', solver = 'saga', l1_ratio=0.9)
+print(np.mean(trainResults), np.mean(testResults))
+```
+
+Bettter for `none`
+
+`C`
+
+```{python}
+for k in [0.001, 0.01, 0.1, 1, 10, 100]:
+    trainResults, testResults, predictions, indices = CVTestLRClass(penalty='none', C = k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+No big of a difference, best for `C=0.1`.
+
+#### Tuned model
+
+```{python}
+best_lr = LogisticRegression(penalty='none', C = 1)
+pipeline = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), best_lr) # SMOTE happens during Cross Validation not before..
+model = pipeline.fit(X_train, y_train)
+prediction = best_lr.predict(orgXtrain)
+print(f'NEW DATA BALANCED ACCURACY\ntraining: {round(balanced_accuracy_score(orgytrain, prediction) * 100, 4)}%\ntest (out-of-sample): {round(balanced_accuracy_score(orgytest, best_lr.predict(orgXtest)) * 100, 4)}%')
+```
+
+### Support Vector Classifier
+
+```{python}
+def CVTestSVMClass(nFolds = 6, randomState=2020, debug=False, features=features, *args, **kwargs):
+    kf = KFold(n_splits=nFolds, shuffle=True, random_state=randomState)
+    sKFold = StratifiedKFold(n_splits=4, random_state=None, shuffle=False)
+
+    # Lists to store the results
+    testResults = []
+    trainResults = []
+    predictions = []
+    indices = []
+
+    # Model validation on consecutive folds
+    for train, test in sKFold.split(X_train, y_train):
+        # Prepare the estimator
+        clf = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), SVC(*args, **kwargs, random_state=randomState)) 
+        #clf = RandomForestRegressor(*args, **kwargs, random_state=randomState, n_jobs=-1)
+        if debug:
+            print(clf)
+        # Train the model
+        clf.fit(X_train[train], y_train[train])
+
+        predsTrain = clf.predict(X_train[train])
+        preds = clf.predict(X_train[test])
+        
+        # Save each fold predictions
+        predictions.append(preds.tolist().copy())
+        
+        # Store index for original dataset
+        #indices.append(df.iloc[test].index.tolist().copy())
+        
+        # Get MAPE score from each fold
+        trainScore = balanced_accuracy_score(y_train[train], predsTrain)
+        testScore = balanced_accuracy_score(y_train[test], preds)
+        
+        # Store Mape results to list  
+        trainResults.append(trainScore)
+        testResults.append(testScore)
+        
+        # Optionally, print results for each fold
+        if debug:
+            print("Train MAPE:", trainScore,
+                  "Valid MAPE:", testScore)
+        
+    return trainResults, testResults, predictions, indices
+```
+
+`gamma='auto'`
+
+```{python}
+trainResults, testResults, predictions, indices = CVTestSVMClass(gamma='auto')
+print(np.mean(trainResults), np.mean(testResults))
+```
+
+`gamma`
+
+```{python}
+for k in [1, 0.1, 0.01, 0.001, 0.0001]:
+    trainResults, testResults, predictions, indices = CVTestSVMClass(gamma=k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+Best performance for `gamma=0.001`.
+
+`C`
+
+```{python}
+for k in [0.1, 1, 10, 100, 1000]:
+    trainResults, testResults, predictions, indices = CVTestSVMClass(gamma=0.001, C=k)
+    print(k, np.mean(trainResults), np.mean(testResults))
+```
+
+Best for `gamma=0.001` and `C=10`.
+
+#### Tuned model
+
+```{python}
+best_svm = SVC(gamma=0.001, C = 10)
+pipeline = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), best_svm) # SMOTE happens during Cross Validation not before..
+model = pipeline.fit(X_train, y_train)
+prediction = best_svm.predict(orgXtrain)
+print(f'NEW DATA BALANCED ACCURACY\ntraining: {round(balanced_accuracy_score(orgytrain, prediction) * 100, 4)}%\ntest (out-of-sample): {round(balanced_accuracy_score(orgytest, best_svm.predict(orgXtest)) * 100, 4)}%')
+```
+
+## Grid Search (automated parameter tuning)
+
+I then check to see if I can get better results with GridSearch. I give the parameters and make pipelines with SMOTE+Tomek.
+
+```{python}
+logistic_regression = LogisticRegression()
+logistic_params = {"penalty": ['l2', 'none'], 'C': [0.001, 0.01, 0.1, 1, 10, 100, 1000]}
+rcv_logistic_regression = RandomizedSearchCV(LogisticRegression(), logistic_params, n_iter=4)
+
+knn = KNeighborsClassifier()
+knn_params = {"n_neighbors": list(range(1,5,1)), 'algorithm': ['auto', 'ball_tree', 'kd_tree', 'brute']}
+rcv_knn = RandomizedSearchCV(KNeighborsClassifier(), knn_params, n_iter=4)
+
+svc = SVC()
+svc_params = {'C': [0.1, 0.3, 0.5, 0.7, 0.9, 1], 'kernel': ['rbf', 'poly', 'sigmoid', 'linear']}
+rcv_svc = RandomizedSearchCV(SVC(), svc_params, n_iter=4)
+
+tree = DecisionTreeClassifier()
+tree_params = {"criterion": ["gini", "entropy"], "max_depth": list(range(2,4,1)), 
+              "min_samples_leaf": list(range(1,7,1)), "max_features":list(range(5,45,5)), "min_samples_split":list(range(1,20,2))}
+rcv_tree = RandomizedSearchCV(RandomForestClassifier(), tree_params, n_iter=4)
+
+
+# Implementing SMOTE Technique 
+# Cross Validating the right way
+balanced_accuracy_list = []
+for train, test in sKFold.split(X_train, y_train):
+    pipeline = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), rcv_logistic_regression)
+    model = pipeline.fit(X_train[train], y_train[train])
+    best_lrgr = rcv_logistic_regression.best_estimator_
+    prediction = best_lrgr.predict(X_train[test])
+    balanced_accuracy_list.append(balanced_accuracy_score(y_train[test], prediction))
+print("LogisticRegression balanced accuracy: {}".format(np.mean(balanced_accuracy_list)))
+
+balanced_accuracy_list = []
+for train, test in sKFold.split(X_train, y_train):
+    pipeline = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), rcv_knn)
+    model = pipeline.fit(X_train[train], y_train[train])
+    best_knears = rcv_knn.best_estimator_
+    prediction = best_knears.predict(X_train[test])
+    balanced_accuracy_list.append(balanced_accuracy_score(orgytrain[test], prediction)) 
+print("KNN balanced accuracy: {}".format(np.mean(balanced_accuracy_list)))
+
+balanced_accuracy_list = []
+for train, test in sKFold.split(X_train, y_train):
+    pipeline = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), rcv_svc)
+    model = pipeline.fit(X_train[train], y_train[train])
+    best_svc = rcv_svc.best_estimator_
+    prediction = best_svc.predict(X_train[test])
+    balanced_accuracy_list.append(balanced_accuracy_score(orgytrain[test], prediction))
+print("SVC balanced accuracy: {}".format(np.mean(balanced_accuracy_list)))
+
+balanced_accuracy_list = []
+for train, test in sKFold.split(X_train, y_train):
+    pipeline = make_pipeline(SMOTETomek(tomek=TomekLinks(sampling_strategy='majority')), rcv_tree)
+    model = pipeline.fit(X_train[train], y_train[train])
+    best_tree = rcv_tree.best_estimator_
+    prediction = best_tree.predict(X_train[test])
+    balanced_accuracy_list.append(balanced_accuracy_score(orgytrain[test], prediction))
+print("DecisionTreeClassifier balanced accuracy: {}".format(np.mean(balanced_accuracy_list)))
+```
+
+Best for logistic regression, but weaker than for manual search.
+
+## Out-Of-Sample Performance
+
+### Grid Search
+
+I draw a confussion matrix for the models obtained by GridSearch
+
+```{python}
+from sklearn.metrics import confusion_matrix
+
+# fitted using SMOTE technique
+y_pred_log_reg = best_lrgr.predict(X_test)
+y_pred_knear = best_knears.predict(X_test)
+y_pred_svc = best_svc.predict(X_test)
+y_pred_tree = best_tree.predict(X_test)
+
+
+log_reg_cf = confusion_matrix(y_test, y_pred_log_reg)
+kneighbors_cf = confusion_matrix(y_test, y_pred_knear)
+svc_cf = confusion_matrix(y_test, y_pred_svc)
+tree_cf = confusion_matrix(y_test, y_pred_tree)
+
+
+fig, ax = plt.subplots(2, 2,figsize=(22,12))
+
+sns.heatmap(log_reg_cf, ax=ax[0][0], annot=True)
+ax[0, 0].set_title("Logistic Regression \n Confusion Matrix", fontsize=14)
+ax[0, 0].set_xticklabels(['', ''], fontsize=14, rotation=90)
+ax[0, 0].set_yticklabels(['', ''], fontsize=14, rotation=360)
+
+sns.heatmap(kneighbors_cf, ax=ax[0][1], annot=True)
+ax[0][1].set_title("KNearsNeighbors \n Confusion Matrix", fontsize=14)
+ax[0][1].set_xticklabels(['', ''], fontsize=14, rotation=90)
+ax[0][1].set_yticklabels(['', ''], fontsize=14, rotation=360)
+
+sns.heatmap(svc_cf, ax=ax[1][0], annot=True)
+ax[1][0].set_title("Suppor Vector Classifier \n Confusion Matrix", fontsize=14)
+ax[1][0].set_xticklabels(['', ''], fontsize=14, rotation=90)
+ax[1][0].set_yticklabels(['', ''], fontsize=14, rotation=360)
+
+sns.heatmap(tree_cf, ax=ax[1][1], annot=True)
+ax[1][1].set_title("DecisionTree Classifier \n Confusion Matrix", fontsize=14)
+ax[1][1].set_xticklabels(['', ''], fontsize=14, rotation=90)
+ax[1][1].set_yticklabels(['', ''], fontsize=14, rotation=360)
+
+
+plt.show()
+```
+
+#### Logistic Regression
+
+```{python}
+y_pred = best_lrgr.predict(orgXtest)
+score = balanced_accuracy_score(orgytest, y_pred)
+
+confu = confusion_matrix(orgytest, y_pred)
+
+print(score)
+sns.heatmap(confu, annot=True)
+```
+
+### Manual parameter tuning
+
+#### Random Forrest Classifier
+
+```{python}
+y_pred = best_forrest.predict(orgXtest)
+score = balanced_accuracy_score(orgytest, y_pred)
+
+confu = confusion_matrix(orgytest, y_pred)
+
+print(score)
+sns.heatmap(confu, annot=True)
+```
+
+#### k-Nearest Neighbors
+
+```{python}
+y_pred = best_knn.predict(orgXtest)
+score = balanced_accuracy_score(orgytest, y_pred)
+
+confu = confusion_matrix(orgytest, y_pred)
+
+print(score)
+sns.heatmap(confu, annot=True)
+```
+
+#### Logistic Regression
+
+```{python}
+y_pred = best_lr.predict(orgXtest)
+score = balanced_accuracy_score(orgytest, y_pred)
+
+confu = confusion_matrix(orgytest, y_pred)
+
+print(score)
+sns.heatmap(confu, annot=True)
+```
+
+#### Support Vector Classifier
+
+```{python}
+y_pred = best_svm.predict(orgXtest)
+score = balanced_accuracy_score(orgytest, y_pred)
+
+confu = confusion_matrix(orgytest, y_pred)
+
+print(score)
+sns.heatmap(confu, annot=True)
+```
+
+# Best model
+
+The best model of all was the KNN model with 2 neighbours, obtained by manual tuning. I draw the AUC-ROC curve.
+
+```{python}
+y_scores = best_knn.predict_proba(orgXtest)
+fpr, tpr, threshold = roc_curve(orgytest, y_scores[:, 1])
+roc_auc = auc(fpr, tpr)
+
+plt.title('Receiver Operating Characteristic')
+plt.plot(fpr, tpr, 'b', label = 'AUC = %0.2f' % roc_auc)
+plt.legend(loc = 'lower right')
+plt.plot([0, 1], [0, 1],'r--')
+plt.xlim([0, 1])
+plt.ylim([0, 1])
+plt.ylabel('True Positive Rate')
+plt.xlabel('False Positive Rate')
+plt.title('ROC Curve of kNN')
+plt.show()
+```
+
+# Test Data Prediction
+
+At the very end it remains to make a prediction on the test set. Before that, I have to make the same modifications on the test set as I did on the training set.
+
+```{python}
+df_test = pd.read_csv("data/drugs_test.csv")
+df_test.drop(columns=['id'], inplace = True)
+df_test.head()
+df_test.loc[df_test["education"] == "Left school at 17 years", "education"] = "Left school before 18 years"
+df_test.loc[df_test["education"] == "Left school at 16 years", "education"] = "Left school before 18 years"
+df_test.loc[df_test["education"] == "Left school before 16 years", "education"] = "Left school before 18 years"
+df_test.loc[df_test["country"] == "Canada", "country"] = "Other country"
+df_test.loc[df_test["country"] == "Ireland", "country"] = "Other country"
+df_test.loc[df_test["ethnicity"] == "Asian", "ethnicity"] = "Other"
+df_test.loc[df_test["ethnicity"] == "Black", "ethnicity"] = "Other"
+df_test.loc[df_test["ethnicity"] == "Other", "ethnicity"] = "Other"
+df_test.loc[df_test["ethnicity"] == "White", "ethnicity"] = "Other"
+df_test.loc[df_test["ethnicity"] == "Mixed-White/Asian", "ethnicity"] = "Other"
+df_test.loc[df_test["ethnicity"] == "Mixed-White/Black", "ethnicity"] = "Other"
+df_test.loc[df_test["consumption_alcohol"] == "never used", "consumption_alcohol"] = "more than year ago"
+df_test.loc[df_test["consumption_alcohol"] == "used in last decade", "consumption_alcohol"] = "more than year ago"
+df_test.loc[df_test["consumption_alcohol"] == "used over a decade ago", "consumption_alcohol"] = "more than year ago"
+df_test.loc[df_test["consumption_caffeine"] == "used in last decade", "consumption_caffeine"] = "more than month ago"
+df_test.loc[df_test["consumption_caffeine"] == "used over a decade ago", "consumption_caffeine"] = "more than month ago"
+df_test.loc[df_test["consumption_caffeine"] == "used in last year", "consumption_caffeine"] = "more than month ago"
+df_test.loc[df_test["consumption_caffeine"] == "never used", "consumption_caffeine"] = "more than month ago"
+df_test.loc[df_test["consumption_chocolate"] == "used in last decade", "consumption_chocolate"] = "more than month ago"
+df_test.loc[df_test["consumption_chocolate"] == "used over a decade ago", "consumption_chocolate"] = "more than month ago"
+df_test.loc[df_test["consumption_chocolate"] == "never used", "consumption_chocolate"] = "more than month ago"
+df_test.loc[df_test["consumption_chocolate"] == "used in last year", "consumption_chocolate"] = "more than month ago"
+df_test.loc[df_test["consumption_mushrooms"] == "used in last week", "consumption_mushrooms"] = "used recently"
+df_test.loc[df_test["consumption_mushrooms"] == "used in last day", "consumption_mushrooms"] = "used recently"
+df_test = pd.get_dummies(df_test, columns = ['age', 'gender', 'education', 'country', 'ethnicity','consumption_alcohol',
+       'consumption_amphetamines', 'consumption_caffeine',
+       'consumption_cannabis', 'consumption_chocolate',
+       'consumption_mushrooms', 'consumption_nicotine'])
+df_test['personality_neuroticism'] = df_test['personality_neuroticism']/100
+df_test['personality_extraversion'] = df_test['personality_extraversion']/100
+df_test['personality_openness'] = df_test['personality_openness'] / 100
+df_test['personality_agreeableness'] = df_test['personality_agreeableness']/100
+df_test['personality_conscientiousness'] = df_test['personality_conscientiousness']/100
+df_test['personality_impulsiveness'] = df_test['personality_impulsiveness']/100
+df_test['personality_sensation'] = df_test['personality_sensation'] /100
+```
+
+```{python}
+best_knn.predict(df_test)
+```
+
+I save the predictions to a CSV file.
+
+```{python}
+# submission = best_knn.predict(df_test)
+# pd.DataFrame(submission).to_csv("classification_SS.csv", header = None, index = None)
+```
+
+# Expected results
+
+Expected value of **`balanced accuracy`: 88%**
+
