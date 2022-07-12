@@ -16,4 +16,9 @@ Algorithm selection:
 * Out-of-sample accuracy comparision of various algorithms
 * **k-Nearest Neighbors Classifier with `n_neighbors=2`**
 
+</br>
+<p align="center">
+  <img src="https://github.com/szymonsocha/ML_Classification_KNN/blob/main/data/knn_oos_prediction.jpg?raw=true" alt="KNN Out-of-sample Prediction"/>
+</p>
+
 Expected value of **`balanced accuracy`: 88%**
