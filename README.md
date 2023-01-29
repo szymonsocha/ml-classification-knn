@@ -4,7 +4,7 @@ Classification in machine learning is a common problem of putting data instances
 
 Algorithms considered:
 
-* Random Forrest
+* Random Forest
 * **k-Nearest Neighbors Classifier**
 * Logistic Regression
 * Support Vector Classifier
